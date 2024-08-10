@@ -1,42 +1,36 @@
 Summary
 -------
 
-Reduce the size of object headers in the HotSpot JVM from between 96 and 128 bits down to 64 bits on 64-bit architectures. This will reduce heap size, improve deployment density, and increase data locality.
+On targeted platforms, reduce the size of object headers in the HotSpot JVM to 64 bits from today's 96 or 128 bits, significantly reducing memory usage and increasing data locality.
 
 
 Goals
 -----
 
 When enabled, this feature
+* must reduce the object header size to 64 bits (8 bytes) on the target platforms (x64 and AArch64)
+* should not cause more than 5% throughput- or latency overheads
 
-* Must reduce the object header size to 64 bits (8 bytes) on the target 64-bit platforms (x64 and AArch64),
-* Should reduce object sizes and memory footprint on realistic workloads,
-* Should not introduce more than 5% throughput or latency overheads on the target 64-bit platforms, and only in infrequent cases, and
-* Should not introduce measurable throughput or latency overheads on non-target 64-bit platforms.
+When disabled or - on non-targeted platforms - unavailable, this feature
+* must retain the original object header layout
+* should not introduce throughput or latency overheads
 
-When disabled, this feature
-
-* Must retain the original object header layout and object sizes on all platforms, and
-* Should not introduce measurable throughput or latency overheads on any platform.
-
-This experimental feature will have a broad impact on real-world applications. The code might have inefficiencies, bugs, and unanticipated non-bug behaviors. This feature must therefore be disabled by default, and enabled only by explicit user request. We intend to enable it by default in later releases and eventually remove the code for legacy object headers altogether.
+The feature will first be experimental and disabled by default. We intend to enable it by default in later releases and eventually remove the code for legacy object headers altogether.
 
 
 ## Non-Goals
 
-It is not a goal to
-
-* Reduce the object header size below 64 bits on 64-bit platforms,
-* Reduce the object header size on non-target 64-bit platforms,
-* Change the object header size on 32-bit platforms, since they are already 64 bits, or
-* Change the encoding of object content (i.e., fields and array elements) or array metadata (i.e., array length).
+* Reduce the object header size below 64 bits on 64-bit platforms.
+* Reduce the object header size on non-target 64-bit platforms.
+* Change the object header size on 32-bit platforms.
+* Change the object content (i.e., fields and array elements) or array metadata (i.e., array length).
 
 
 ## Motivation
 
 A Java object stored in the heap has metadata, which the HotSpot JVM stores in the object's header. The size of the header is constant; it is independent of object type, array shape, and content. In the 64-bit HotSpot JVM object headers are between 96 bits (12 bytes) and 128 bits (16 bytes), depending on how the JVM is configured.
 
-Objects in Java programs tend to be small. [Experiments conducted as part of Project Lilliput](https://wiki.openjdk.org/display/lilliput/Lilliput+Experiment+Results) show that many workloads have average object sizes of 256 to 512 bits (32 to 64 bytes). This implies that more than 20% of live data can be taken by object headers alone.  Thus even a small improvement in object header size could bring a large improvement in footprint. Cutting down the header of each object from 96 to 64 bits means improving overall heap usage by more than 10%, since the header is a fixed cost for every object. A smaller average object size leads to improvement in memory usage, GC pressure, and data locality.
+Objects in Java programs tend to be small. [Experiments conducted as part of Project Lilliput](https://wiki.openjdk.org/display/lilliput/Lilliput+Experiment+Results) show that many workloads have average object sizes of 256 to 512 bits (32 to 64 bytes). This implies that more than 20% of live data can be taken by object headers alone.  Thus even a small improvement in object header size could bring a large improvement in footprint. Cutting down the header of each object from 96 to 64 bits means improving overall heap usage by more than 10% since the header is a fixed cost for every object. A smaller average object size leads to improvement in memory usage, GC pressure, and data locality.
 
 Early adopters of Project Lilliput who have tried it with real-world applications confirm that live data is typically reduced by 10%–20%.
 
@@ -62,7 +56,7 @@ The mark word comes first, has the size of a machine address, and contains:
       [.......................HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH.AAAA.TT]
              (Unused)                      (Hash Code)     (GC Age)(Tag)
 
-In some situations the mark word is overwritten with a tagged pointer to a separate data structure:
+In some situations, the mark word is overwritten with a tagged pointer to a separate data structure:
 
     Mark Word (overwritten):
      64                                                           2 0
@@ -103,10 +97,11 @@ Compact object headers are guarded by a new experimental runtime option, `-XX:(+
 
 ### Compressed class pointers
 
-Today's compressed class pointers encode a 64-bit pointer into 32 bits.  JDK&nbsp;8 introduced compressed class pointers, which first depended on compressed object pointers; JDK&nbsp;15 [removed this dependency](https://bugs.openjdk.org/browse/JDK-8241825). Today, there are only two scenarios in which one would disable compressed class pointers:
+Today's compressed class pointers encode a 64-bit pointer into 32-bits. JDK 8 introduced compressed class pointers, which first depended on compressed object pointers; JDK&nbsp;15 [removed this dependency](https://bugs.openjdk.org/browse/JDK-8241825). 
 
-- An application uses JVMCI, which on some platforms does not support compressed class pointers, or
-- An application loads more than roughly four million classes.
+Today, there are only two scenarios in which one would disable compressed class pointers:
+* an application uses JVMCI, which may inhibit the use of compressed class pointers
+* an application loads more classes than fit into a maxed-out class space of four GB (roughly four million classes)
 
 The theoretical limit of four million classes is imposed by the way that class space is implemented today. An application that hits this limit would use approximately six to 40 GB of [metaspace](https://openjdk.org/jeps/387) alone; we have yet to see an application that does this.
 
